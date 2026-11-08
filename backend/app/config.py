@@ -7,8 +7,6 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_MINUTES: int = 60 * 24
     FRONTEND_ORIGIN: str = "http://localhost:3000"
-    # absolute base of this API, used inside verification links you get by email
-    PUBLIC_API_URL: str = "http://localhost:8000"
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     ADMIN_EMAILS: str = "admin@shop.com"
@@ -22,7 +20,12 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASS: str = ""
     SMTP_FROM: str = "MyShop <no-reply@myshop.local>"
-    VERIFY_TOKEN_HOURS: int = 24
+    VERIFY_CODE_MINUTES: int = 10
+
+    def smtp_configured(self) -> bool:
+        """True only when a real SMTP account is set in .env — codes get
+        emailed then, and shown on-screen otherwise."""
+        return bool(self.SMTP_USER and self.SMTP_PASS)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

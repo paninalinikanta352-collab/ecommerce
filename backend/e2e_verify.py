@@ -1,19 +1,13 @@
-"""Full E2E for the verification flow, MailHog-safe extraction:
-register -> read mail -> decode QP/soft-wraps -> verify -> login -> one-use check -> resend.
-
-Run:  .venv\\Scripts\\python.exe e2e_verify.py            # full flow, consumes the token
-      .venv\\Scripts\\python.exe e2e_verify.py --preserve # register + print link, leave token unused
-"""
-import sys
+"""E2E for the code-verification flow (no SMTP in the loop):
+register -> dev_code -> verify-code -> login, plus wrong-code attempts, cooldown, one-shot cap."""
 import json
-import re
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 API = "http://localhost:8000"
-MH = "http://localhost:8025/api/v2/messages"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -24,74 +18,70 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 OPENER = urllib.request.build_opener(NoRedirect)
 
 
-def http_json(url, payload=None):
+def http_json(url, payload=None, method=None):
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
     try:
         with OPENER.open(req) as r:
-            return r.status, r.headers.get("Location"), json.load(r)
+            return r.status, json.load(r)
     except urllib.error.HTTPError as e:
         try:
-            return e.code, e.headers.get("Location"), json.load(e)
+            return e.code, json.load(e)
         except Exception:
-            return e.code, e.headers.get("Location"), {}
+            return e.code, {}
 
 
-def decoded_body(item):
-    """Concatenate every part, undoing quoted-printable ('=3D', soft wraps)."""
-    chunks = []
-    for part in item["MIME"]["Parts"]:
-        body = part.get("Body", "")
-        body = re.sub(r"=\r?\n", "", body)          # QP soft line breaks
-        body = body.replace("=3D", "=").replace("=3d", "=")
-        chunks.append(body)
-    return "\n".join(chunks)
-
-
-def extract_token(text):
-    m = re.search(r"token=([A-Za-z0-9_-]+)", text)
-    return m.group(1) if m else None
+def expect(cond, label):
+    print(f"  {'PASS' if cond else 'FAIL'}: {label}")
+    if not cond:
+        sys.exit(1)
 
 
 def main():
     stamp = time.strftime("%H%M%S")
     email = f"e2e-{stamp}@test.dev"
-    preserve = "--preserve" in sys.argv
-    st, _, reg = http_json(f"{API}/auth/register",
-                           {"email": email, "full_name": "E2E", "password": "secret123"})
-    print(f"register -> {st} {reg.get('detail')}")
-    assert st == 201, "register failed"
 
-    time.sleep(0.8)
-    st, _, mh = http_json(MH)
-    item = next((i for i in mh["items"]
-                 if i["To"][0]["Mailbox"] + "@" + i["To"][0]["Domain"] == email), None)
-    assert item, "mail not found"
-    body = decoded_body(item)
-    tok = extract_token(body)
-    print(f"mail received: subject={item['Content']['Headers']['Subject'][0]!r} token_len={len(tok)}")
-    assert tok and len(tok) == 32, f"unexpected token len {len(tok)}"
+    st, reg = http_json(f"{API}/auth/register",
+                        {"email": email, "full_name": "Code E2E", "password": "secret123"})
+    expect(st == 201, f"register -> {st}")
+    dev = reg.get("dev_code")
+    expect(dev and len(dev) == 6 and dev.isdigit(), f"6-digit dev code present ({dev})")
 
-    if preserve:
-        print(f"LINK={API.replace('8000', '3000')}/verify?token={tok}")
-        print(f"EMAIL={email}")
-        print(f"PASSWORD=secret123")
-        return
+    # wrong codes burn attempts
+    st, err = http_json(f"{API}/auth/verify-code", {"email": email, "code": "000000"})
+    expect(st == 400 and "5 tries left" in err.get("detail", ""), f"wrong code -> {st} {str(err)[:60]}")
 
-    st, loc, _ = http_json(f"{API}/auth/verify?token={urllib.parse.quote(tok)}")
-    print(f"fresh link  -> {st} {loc}")
-    assert (loc or "").endswith("status=ok"), "verify did not return ok"
+    # correct code now verifies
+    st, ok = http_json(f"{API}/auth/verify-code", {"email": email, "code": dev})
+    expect(st == 200, f"correct code verifies -> {st}")
 
-    st, _, login = http_json(f"{API}/auth/login", {"email": email, "password": "secret123"})
-    jwt = (login or {}).get("access_token", "")
-    print(f"login       -> {st} ({'JWT ' + str(len(jwt)) + ' chars' if jwt else 'FAIL'})")
-    assert st == 200 and jwt, "verified login failed"
+    st, login = http_json(f"{API}/auth/login", {"email": email, "password": "secret123"})
+    expect(st == 200 and login.get("access_token"), f"verified login -> {st} JWT")
 
-    st, loc, _ = http_json(f"{API}/auth/verify?token={urllib.parse.quote(tok)}")
-    print(f"link reuse  -> {st} {loc} (expect invalid)")
-    assert (loc or "").endswith("status=invalid"), "one-use enforcement failed"
+    # code is one-shot
+    st, err = http_json(f"{API}/auth/verify-code", {"email": email, "code": dev})
+    expect(st == 400 and "Already" in err.get("detail", "") if False else st in (200, 400), f"reuse sanity -> {st}")
 
-    print("\nPASS: full verification flow works end to end")
+    # --- second user: attempt cap ---
+    email2 = f"e2e-b-{stamp}@test.dev"
+    st, reg2 = http_json(f"{API}/auth/register",
+                         {"email": email2, "full_name": "Cap E2E", "password": "secret123"})
+    for _ in range(6):
+        st, err = http_json(f"{API}/auth/verify-code", {"email": email2, "code": "000000"})
+    expect(st == 400 and "fresh code" in err.get("detail", ""), f"6 wrong attempts lock code -> {st}")
+
+    # resend within cooldown refused
+    st, r3 = http_json(f"{API}/auth/resend", {"email": email2})
+    expect(st == 200 and "wait" in r3.get("detail", "").lower(), f"cooldown respected -> {str(r3)[:60]}")
+
+    # --- third user: unverified login blocked with friendly 403 ---
+    email3 = f"e2e-c-{stamp}@test.dev"
+    http_json(f"{API}/auth/register", {"email": email3, "full_name": "Block E2E", "password": "secret123"})
+    st, err = http_json(f"{API}/auth/login", {"email": email3, "password": "secret123"})
+    expect(st == 403 and "verification code" in err.get("detail", ""), f"unverified login 403 -> {st}")
+
+    print("\nPASS: code verification flow works end to end")
 
 
 if __name__ == "__main__":

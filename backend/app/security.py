@@ -10,6 +10,7 @@ from .config import settings
 PWD_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 RESEND_COOLDOWN_SECONDS = 120
+MAX_CODE_ATTEMPTS = 6
 
 
 def hash_password(password: str) -> str:
@@ -20,19 +21,16 @@ def verify_password(password: str, hashed: str) -> bool:
     return PWD_CONTEXT.verify(password, hashed)
 
 
-def generate_verification_token() -> tuple[str, str, dt.datetime]:
-    """One-use link token. Returns (plain_token_for_the_link, db_hash, expiry).
-
-    24 bytes (32 urlsafe chars) keeps the full verify URL under the 76-char
-    line where quoted-printable mail encoders hard-wrap links.
-    """
-    plain = secrets.token_urlsafe(24)
-    token_hash = hashlib.sha256(plain.encode()).hexdigest()
-    expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=settings.VERIFY_TOKEN_HOURS)
-    return plain, token_hash, expires
+def generate_verification_code() -> tuple[str, str, dt.datetime]:
+    """6-digit code. Returns (plain_code_shown/user_entered, db_hash, expiry).
+    Stored as SHA-256 like the tokens used to be — DB leak ≠ usable codes."""
+    plain = "".join(secrets.choice("0123456789") for _ in range(6))
+    code_hash = hashlib.sha256(plain.encode()).hexdigest()
+    expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=settings.VERIFY_CODE_MINUTES)
+    return plain, code_hash, expires
 
 
-def hash_token(plain: str) -> str:
+def hash_code(plain: str) -> str:
     return hashlib.sha256(plain.encode()).hexdigest()
 
 

@@ -17,7 +17,7 @@ A complete e-commerce MVP built end to end: **Next.js (React, JavaScript)** stor
 - Admin panel: create/edit/hide products, view all orders, advance order status
 
 **Backend (FastAPI + SQLAlchemy 2.0 + PostgreSQL)**
-- JWT auth with bcrypt + **email verification by link** before first login
+- JWT auth with bcrypt + **6-digit code verification** before first login (code shows on-screen in dev — no mail server needed)
 - REST router per domain: `auth`, `products`, `cart`, `orders`, `admin`
 - **Razorpay order creation + server-side signature verification** — a browser can't fake "payment successful"
 - Orders keep **snapshots** of product names/prices, so history survives product edits
@@ -92,21 +92,23 @@ npm run dev                    # → http://localhost:3000
 
 Verification is idempotent. Without Razorpay keys configured, checkout fails with `503 "Payment gateway is not configured"` — everything else works.
 
-## Email verification — how it actually works
+## Verification — a 6-digit code, no mail server required
 
-1. `POST /auth/register` creates the account (password bcrypt-hashed), generates a **one-use token** (`secrets.token_urlsafe(24)` → 32 chars, sized so the link survives quoted-printable mail wrapping) and emails a link to `{PUBLIC_API_URL}/auth/verify?token=…`. SMTP failures never block registration.
-2. Only a **SHA-256 hash** of the token is stored (`verification_token_hash`), plus its `24h` expiry — leak the DB and the links are still useless. Links route through the **API**, not the frontend, because the browser's next stop is decided by the server.
-3. `GET /auth/verify?token=…` compares `sha256(token)`, marks the account verified, **clears the hash** (one-use), and `302`s the browser to the frontend status page: `/verify?status=ok|expired|invalid`.
-4. Unverified users **cannot log in** — login answers `403` with a clear message; the login page then shows a **Resend verification email** button.
-5. `POST /auth/resend {email}` never reveals whether an account exists (always `200`). Real mails are rate-limited by a **120-second cooldown** stored server-side per user.
+1. `POST /auth/register` creates the account (bcrypt-hashed password) and generates a **6-digit code**.
+2. Where does the code go?
+   - **No SMTP configured (the default)** → *dev mode*: the code is returned to the verify screen and displayed under the form. Nothing to install, no accounts, no waiting.
+   - **SMTP configured in `.env`** (Gmail app password — see SETUP.md) → the code is **emailed**, and the response carries no code.
+3. The DB stores only the **SHA-256 hash**, plus a **10-minute expiry** — leak the database and the codes are still useless. Six wrong attempts kills the code and forces a fresh one (`MAX_CODE_ATTEMPTS`).
+4. `POST /auth/verify-code {email, code}` → verified. Unverified logins get a clear `403`; the login page then deep-links to the `/verify` screen (same field, resends included).
+5. `POST /auth/resend {email}` never reveals whether an account exists (always `200`), and it's **cooldown-limited per user** (120 s).
 
-**Local dev mail:** [MailHog](https://github.com/mailhog/MailHog) — SMTP on `:1025`, inbox UI at `http://localhost:8025`. Zero external accounts; switch to real SMTP via `SMTP_HOST/PORT/USER/PASS/TLS` in `.env` (Gmail app-password path is commented in `.env.example`).
+No browser redirects, no mail-encoding edge cases, no third service between you and your own database.
 
 A self-contained smoke test is included:
 
 ```bash
 cd backend
-.venv\Scripts\python.exe e2e_verify.py # full flow: registers, reads MailHog, clicks the link, logs in
+.venv\Scripts\python.exe e2e_verify.py # full flow: registers, wrong-codes, verifies, logs in, checks the lockout
 ```
 
 ## Notes on choices

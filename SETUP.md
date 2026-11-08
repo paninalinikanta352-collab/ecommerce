@@ -60,15 +60,11 @@ npm run dev
 
 Store opens at `http://localhost:3000`.
 
-## 4. MailHog (local email for verification)
+## 4. Verification (works out of the box)
 
-`python -m app.seed` also creates an admin (auto-verified), but normal signups **verify by email link** before they can log in.
+New signups verify with a **6-digit code**. Without any SMTP configured, the code shows directly on the verify screen — so a fresh clone is usable in under a minute.
 
-- Download MailHog once: <https://github.com/mailhog/MailHog/releases> (Windows: `MailHog_windows_amd64.exe`)
-- Run it: `MailHog_windows_amd64.exe` → SMTP on `:1025`, inbox UI at <http://localhost:8025>
-- Register a user on the site, click the link in MailHog's inbox, done.
-
-No config needed — `.env` defaults already point at MailHog. For real email (Gmail example):
+Optional — if you'd rather have the code **emailed** (Gmail example):
 
 ```
 SMTP_HOST=smtp.gmail.com
@@ -78,7 +74,9 @@ SMTP_USER=you@gmail.com
 SMTP_PASS=<16-char app password>
 ```
 
-Verification links carry a one-use token; the DB stores only its SHA-256 hash, and the link expires after 24 hours (`VERIFY_TOKEN_HOURS` in `.env`). Admins listed in `ADMIN_EMAILS` skip verification entirely.
+Get the app password Google Account → Security → 2-Step Verification on → App passwords → "add name". Then restart uvicorn. The UX stays identical — the code just moves from the screen to your inbox.
+
+Codes are stored **hashed (SHA-256)**, expire in **10 minutes** (`VERIFY_CODE_MINUTES`), lock out after **six wrong attempts**, and resend is **cooldown-limited**. Admins in `ADMIN_EMAILS` skip verification entirely. If you still enjoy watching mail arrive, [MailHog](https://github.com/mailhog/MailHog) works too (`SMTP_HOST=localhost`, `SMTP_PORT=1025`, inbox UI at <http://localhost:8025>) — but it's optional now, not a dependency.
 
 ## 5. Razorpay (only needed to test checkout)
 
@@ -97,8 +95,8 @@ Without keys, checkout returns `503 "Payment gateway is not configured on the se
 | `connection refused` on port 5432 | Postgres service isn't running — start it |
 | `password authentication failed` | Fix `DATABASE_URL` password in `backend/.env` |
 | CORS errors in the browser console | uvicorn not running, or `FRONTEND_ORIGIN` mismatch — restart backend |
-| Verification mail never shows up | MailHog isn't running (inbox UI at <http://localhost:8025>) or SMTP settings wrong |
-| "Verify your email first" on login though you clicked the link | use the **Resend** button on the login page; old pre-verification users need a new link |
-| Login 403 after clicking a reused/expired link | tokens are one-use and 24h — request a fresh one |
+| "needs a verification code" on login | go to `/verify` (the login page links there), get a fresh code |
+| "Too many wrong attempts" on verify | the code died on purpose after 6 tries — "Send a new code" replaces it |
+| Code emails: Gmail says bad credentials | app password wrong or 2-Step Verification off — regenerate it |
 | Checkout 503 | Add the Razorpay keys, restart backend |
 | `npm run dev` error on first run | run `npm install` first |

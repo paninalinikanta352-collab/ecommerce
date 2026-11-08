@@ -27,11 +27,13 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    # we only keep the SHA-256 hash of the verification link token, never the token itself
-    verification_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    verification_token_expires: Mapped[dt.datetime | None] = mapped_column(
+    # a 6-digit code, stored as SHA-256 — nothing usable leaks with the DB
+    verification_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    verification_code_expires: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    verification_code_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # also drives the resend cooldown
     verification_sent_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
