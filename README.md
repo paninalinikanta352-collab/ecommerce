@@ -6,6 +6,14 @@
 
 A complete e-commerce MVP built end to end: **Next.js (React, JavaScript)** storefront, **FastAPI** backend, **PostgreSQL** database, **Razorpay** payments — from first route to verified payment, in one repo.
 
+## Verification in action
+
+Register → the 6-digit code appears **on screen** (dev mode; email it via SMTP config) → typed in → account verified → logged into the live store. One continuous take, no cuts:
+
+<p>
+  <img src="docs/verify-flow.gif" alt="Register to verified to logged-in, in one pass" width="760" />
+</p>
+
 ## Features
 
 **Storefront (Next.js App Router)**
