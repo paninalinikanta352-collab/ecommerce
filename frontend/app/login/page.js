@@ -12,11 +12,15 @@ function LoginInner() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [needsVerify, setNeedsVerify] = useState(false);
+  const [resendMsg, setResendMsg] = useState("");
+  const [resendBusy, setResendBusy] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
     setError("");
+    setResendMsg("");
     try {
       const token = await api("/auth/login", { method: "POST", body: form });
       saveAuth(token.access_token);
@@ -27,8 +31,29 @@ function LoginInner() {
       else router.push("/");
     } catch (err) {
       setError(err.message);
+      if (err.message.includes("Verify your email")) setNeedsVerify(true);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resend() {
+    if (!form.email) {
+      setResendMsg("Type your email first.");
+      return;
+    }
+    setResendBusy(true);
+    setResendMsg("");
+    try {
+      const r = await api("/auth/resend", {
+        method: "POST",
+        body: { email: form.email },
+      });
+      setResendMsg(r.detail);
+    } catch (err) {
+      setResendMsg(err.message);
+    } finally {
+      setResendBusy(false);
     }
   }
 
@@ -40,6 +65,7 @@ function LoginInner() {
       </p>
 
       {error && <div className="msg-error">{error}</div>}
+      {resendMsg && <div className="msg-ok">{resendMsg}</div>}
 
       <form onSubmit={submit}>
         <label className="label" htmlFor="email">Email</label>
@@ -66,6 +92,17 @@ function LoginInner() {
           {busy ? "Logging in…" : "Login"}
         </button>
       </form>
+
+      {needsVerify && (
+        <button
+          className="btn"
+          style={{ width: "100%", marginTop: 10 }}
+          onClick={resend}
+          disabled={resendBusy}
+        >
+          {resendBusy ? "Sending…" : "Resend verification email"}
+        </button>
+      )}
 
       <p className="muted" style={{ marginTop: 14 }}>
         No account? <Link href="/register">Register</Link>

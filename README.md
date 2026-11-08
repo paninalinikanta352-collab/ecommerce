@@ -17,7 +17,7 @@ A complete e-commerce MVP built end to end: **Next.js (React, JavaScript)** stor
 - Admin panel: create/edit/hide products, view all orders, advance order status
 
 **Backend (FastAPI + SQLAlchemy 2.0 + PostgreSQL)**
-- JWT authentication (bcrypt-hashed passwords)
+- JWT auth with bcrypt + **email verification by link** before first login
 - REST router per domain: `auth`, `products`, `cart`, `orders`, `admin`
 - **Razorpay order creation + server-side signature verification** — a browser can't fake "payment successful"
 - Orders keep **snapshots** of product names/prices, so history survives product edits
@@ -91,6 +91,23 @@ npm run dev                    # → http://localhost:3000
 4. `POST /orders/verify` recomputes `HMAC-SHA256(order_id|payment_id, key_secret)` server-side and compares before marking the order `paid`, decrementing stock and clearing the cart
 
 Verification is idempotent. Without Razorpay keys configured, checkout fails with `503 "Payment gateway is not configured"` — everything else works.
+
+## Email verification — how it actually works
+
+1. `POST /auth/register` creates the account (password bcrypt-hashed), generates a **one-use token** (`secrets.token_urlsafe(24)` → 32 chars, sized so the link survives quoted-printable mail wrapping) and emails a link to `{PUBLIC_API_URL}/auth/verify?token=…`. SMTP failures never block registration.
+2. Only a **SHA-256 hash** of the token is stored (`verification_token_hash`), plus its `24h` expiry — leak the DB and the links are still useless. Links route through the **API**, not the frontend, because the browser's next stop is decided by the server.
+3. `GET /auth/verify?token=…` compares `sha256(token)`, marks the account verified, **clears the hash** (one-use), and `302`s the browser to the frontend status page: `/verify?status=ok|expired|invalid`.
+4. Unverified users **cannot log in** — login answers `403` with a clear message; the login page then shows a **Resend verification email** button.
+5. `POST /auth/resend {email}` never reveals whether an account exists (always `200`). Real mails are rate-limited by a **120-second cooldown** stored server-side per user.
+
+**Local dev mail:** [MailHog](https://github.com/mailhog/MailHog) — SMTP on `:1025`, inbox UI at `http://localhost:8025`. Zero external accounts; switch to real SMTP via `SMTP_HOST/PORT/USER/PASS/TLS` in `.env` (Gmail app-password path is commented in `.env.example`).
+
+A self-contained smoke test is included:
+
+```bash
+cd backend
+.venv\Scripts\python.exe e2e_verify.py # full flow: registers, reads MailHog, clicks the link, logs in
+```
 
 ## Notes on choices
 

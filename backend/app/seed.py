@@ -55,6 +55,7 @@ def run():
                     full_name="Shop Admin",
                     hashed_password=hash_password("admin123"),
                     is_admin=True,
+                    is_verified=True,
                 )
             )
             print(f"admin user created -> {admin_email} / admin123")

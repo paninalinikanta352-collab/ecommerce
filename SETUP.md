@@ -60,7 +60,27 @@ npm run dev
 
 Store opens at `http://localhost:3000`.
 
-## 4. Razorpay (only needed to test checkout)
+## 4. MailHog (local email for verification)
+
+`python -m app.seed` also creates an admin (auto-verified), but normal signups **verify by email link** before they can log in.
+
+- Download MailHog once: <https://github.com/mailhog/MailHog/releases> (Windows: `MailHog_windows_amd64.exe`)
+- Run it: `MailHog_windows_amd64.exe` → SMTP on `:1025`, inbox UI at <http://localhost:8025>
+- Register a user on the site, click the link in MailHog's inbox, done.
+
+No config needed — `.env` defaults already point at MailHog. For real email (Gmail example):
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_USER=you@gmail.com
+SMTP_PASS=<16-char app password>
+```
+
+Verification links carry a one-use token; the DB stores only its SHA-256 hash, and the link expires after 24 hours (`VERIFY_TOKEN_HOURS` in `.env`). Admins listed in `ADMIN_EMAILS` skip verification entirely.
+
+## 5. Razorpay (only needed to test checkout)
 
 1. Sign up at <https://dashboard.razorpay.com>
 2. Settings → API Keys → generate **test** keys
@@ -77,5 +97,8 @@ Without keys, checkout returns `503 "Payment gateway is not configured on the se
 | `connection refused` on port 5432 | Postgres service isn't running — start it |
 | `password authentication failed` | Fix `DATABASE_URL` password in `backend/.env` |
 | CORS errors in the browser console | uvicorn not running, or `FRONTEND_ORIGIN` mismatch — restart backend |
+| Verification mail never shows up | MailHog isn't running (inbox UI at <http://localhost:8025>) or SMTP settings wrong |
+| "Verify your email first" on login though you clicked the link | use the **Resend** button on the login page; old pre-verification users need a new link |
+| Login 403 after clicking a reused/expired link | tokens are one-use and 24h — request a fresh one |
 | Checkout 503 | Add the Razorpay keys, restart backend |
 | `npm run dev` error on first run | run `npm install` first |

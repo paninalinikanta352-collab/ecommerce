@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, saveAuth } from "@/lib/api";
+import { api } from "@/lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({ full_name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
@@ -17,12 +18,7 @@ export default function RegisterPage() {
     setError("");
     try {
       await api("/auth/register", { method: "POST", body: form });
-      const token = await api("/auth/login", {
-        method: "POST",
-        body: { email: form.email, password: form.password },
-      });
-      saveAuth(token.access_token);
-      router.push("/");
+      setDone(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -30,11 +26,30 @@ export default function RegisterPage() {
     }
   }
 
+  if (done) {
+    return (
+      <div className="card form-card" style={{ padding: 26, margin: "30px auto", textAlign: "center" }}>
+        <div style={{ fontSize: 44 }}>📬</div>
+        <h1 style={{ margin: "8px 0 6px", fontSize: 22 }}>Check your inbox</h1>
+        <p className="muted" style={{ margin: "0 0 14px" }}>
+          We sent a verification link to <strong>{form.email}</strong>.
+          Click it to activate your account — the link expires in 24&nbsp;hours.
+        </p>
+        <p className="muted" style={{ margin: "0 0 18px", fontSize: 13 }}>
+          Local dev: the mail lands in the <a href="http://localhost:8025" target="_blank" rel="noreferrer">MailHog inbox</a>.
+        </p>
+        <Link className="btn btn-primary" style={{ display: "inline-block" }} href="/login">
+          Go to login
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="card form-card" style={{ padding: 26, margin: "30px auto" }}>
       <h1 style={{ margin: "0 0 4px", fontSize: 22 }}>Create account</h1>
       <p className="muted" style={{ margin: "0 0 14px" }}>
-        Takes ten seconds.
+        Takes ten seconds. We&apos;ll email you a verify link.
       </p>
 
       {error && <div className="msg-error">{error}</div>}
